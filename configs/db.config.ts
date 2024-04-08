@@ -25,7 +25,7 @@ const connectionPool = mysql.createPool({
     database : "asdf",
     waitForConnections : true,
     connectionLimit : 1,
-    queueLimit : 1    
+    queueLimit : 5
 }).promise()
 
 
