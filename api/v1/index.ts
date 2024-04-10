@@ -176,8 +176,7 @@ router.get("/post", async(req: Request, res: Response, next: NextFunction) => {
 router.post("/post/:userid", async (req: Request, res: Response, next: NextFunction) => {
     
 });
-//TODO: 삭제 및 업데이트는 게시글의 작성자아이디와 로그인 된 아이디 확인하기
-//TODO: 일단 기능만 구현
+
 router.delete("/post", async (req: Request, res: Response, next: NextFunction) => {
     try{
         const postId= Number(req.body.postid);
@@ -186,8 +185,10 @@ router.delete("/post", async (req: Request, res: Response, next: NextFunction) =
         const [post, fields] = await connection.query(`
             SELECT *FROM posts
             WHERE postid = ?`, [postId]) as [postType[], object];
+        const postUserId = post[0].userid;
 
         if(post.length === 0) throw new Error("존재하지 않은 게시글 입니다.");
+        if(!(postUserId === req.session.user?.userid)) throw new Error ("게시글의 작성자만 삭제 가능합니다.");
         
         await connection.query(`
             DELETE FROM posts
@@ -208,8 +209,10 @@ router.put("/post", async (req: Request, res: Response, next: NextFunction) => {
         const [posts, fields] = await connection.query(`
             SELECT *FROM posts
             WHERE postid = ?`,[postId]) as [postType[], object];
+        const postUserId = posts[0].userid;
 
         if(posts.length === 0) throw new Error("게시글이 존재하지 않습니다");
+        if(!(postUserId === req.session.user?.userid)) throw new Error("게시글의 작성자만 수정을 할 수 있습니다.");
 
         await connection.query(`
             UPDATE posts
