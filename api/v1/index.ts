@@ -1,4 +1,5 @@
 import { NextFunction, Request, Response, Router } from "express";
+import { Connection } from "mysql2/typings/mysql/lib/Connection";
 import { connectionPool } from "../../configs/db.config";
 
 const router: Router = Router();
@@ -22,12 +23,15 @@ type userType = {
 }
 async function isExistUserByUserId(userId : string){
     const connection = await connectionPool.getConnection();
+    
     const [users, fields] = await connection.query(`
         Select * from owners  
         WHERE userid = ?`,
         [userId]) as [userType[], object];
 
     if(users.length == 0) throw new Error ("can not find user");
+
+    connection.release();
 
     return users[0]
 }
@@ -99,6 +103,7 @@ router.get("/user/:userid", async (req: Request, res: Response, next: NextFuncti
         if(userDetails.length === 0) throw new Error("회원 정보가 없습니다");
 
         res.json({userDetails : userDetails[0]});
+        connection.release();
     }catch(err){
         res.json({msg:(err as Error).message});
     }
@@ -106,15 +111,18 @@ router.get("/user/:userid", async (req: Request, res: Response, next: NextFuncti
 
  // JOIN with my Platform
 router.post("/user", async (req: Request, res: Response, next: NextFunction) => {
+    type newUserType = {
+        userid : string,
+        userpw : string,
+        username : string
+    }
+
+    const connection = await connectionPool.getConnection();
+    await connection.beginTransaction();
+
     try{
-        type newUserType = {
-            userid : string,
-            userpw : string,
-            username : string
-        }
         const newUser = req.body as newUserType;
-        
-        const connection = await connectionPool.getConnection();
+
         const [users, fields] = await connection.query(`
         SELECT *from owners 
             WHERE userid = ?
@@ -128,24 +136,28 @@ router.post("/user", async (req: Request, res: Response, next: NextFunction) => 
             [newUser.userid, newUser.userpw, newUser.username])
         
         res.json({msg :"회원가입에 성공했습니다"});
+
+        await connection.commit();
     }catch(err){
         res.json({msg : (err as Error).message})
-    }
-    
+        await connection.rollback();
+    }finally{
+        connection.release();
+    }   
 });
 
 router.get("/logout", (req: Request, res: Response, next: NextFunction) => {
     try{
-    if(!(req.session && req.session.user))
-    return res.send("로그인이 되어있지 않습니다.");
+        if(!(req.session && req.session.user))
+        return res.send("로그인이 되어있지 않습니다.");
 
-    req.session.destroy((err)=>{
-        if(err) throw new Error("로그아웃 실패");
-    })
+        req.session.destroy((err)=>{
+            if(err) throw new Error("로그아웃 실패");
+        })
 
-    res.send("로그아웃 성공");
+        res.send("로그아웃 성공");
     }catch(err){
-    res.json({msg :(err as Error).message})
+        res.json({msg :(err as Error).message})
     }
 });
 
@@ -168,6 +180,7 @@ router.get("/post", async(req: Request, res: Response, next: NextFunction) => {
         if(posts.length === 0) throw new Error("조회된 게시글이 없습니다");
 
         res.json(posts);
+        connection.release();
     }catch(err){
         res.status(500).json({msg:(err as Error).message});
     }
@@ -178,10 +191,12 @@ router.post("/post/:userid", async (req: Request, res: Response, next: NextFunct
 });
 
 router.delete("/post", async (req: Request, res: Response, next: NextFunction) => {
+    const connection = await connectionPool.getConnection();
+    await connection.beginTransaction();
+
     try{
         const postId= Number(req.body.postid);
 
-        const connection = await connectionPool.getConnection()
         const [post, fields] = await connection.query(`
             SELECT *FROM posts
             WHERE postid = ?`, [postId]) as [postType[], object];
@@ -194,8 +209,12 @@ router.delete("/post", async (req: Request, res: Response, next: NextFunction) =
             DELETE FROM posts
             WHERE postid = ?`,[postId]);
         res.json({msg : "게시글을 삭제했습니다"});
+        await connection.commit();
     }catch(err){
         res.status(500).json({msg:(err as Error).message});
+        await connection.rollback();
+    }finally{
+        await connection.release();
     }
     
 });
@@ -220,7 +239,7 @@ router.put("/post", async (req: Request, res: Response, next: NextFunction) => {
             WHERE postid = ?`,[newContent, postId] ) 
 
         res.json({msg : "수정을 완료했습니다"})
-    
+        connection.release();
     }catch(err){
         res.json({msg : (err as Error).message});
     }
