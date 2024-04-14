@@ -1,5 +1,4 @@
 import { NextFunction, Request, Response, Router } from "express";
-import { Connection } from "mysql2/typings/mysql/lib/Connection";
 import { connectionPool } from "../../configs/db.config";
 
 const router: Router = Router();
