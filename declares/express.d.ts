@@ -4,6 +4,7 @@ interface UserPayload {
   userid: string;
   username: string;
 }
+
 declare global {
   namespace Express {
     interface Request {

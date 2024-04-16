@@ -1,5 +1,7 @@
 import { NextFunction, Request, Response, Router } from "express";
 import { connectionPool } from "../../configs/db.config";
+import {isAuthenticated, authenticateError} from "../../middleware/authenticate.middleware";
+
 
 const router: Router = Router();
 
@@ -28,9 +30,9 @@ async function isExistUserByUserId(userId : string){
         WHERE userid = ?`,
         [userId]) as [userType[], object];
 
-    if(users.length == 0) throw new Error ("can not find user");
-
     connection.release();
+
+    if(users.length == 0) throw new Error ("can not find user");
 
     return users[0]
 }
@@ -63,11 +65,10 @@ router.post("/login", async (req: Request, res: Response, next: NextFunction) =>
     }
 });
 
-router.post("/logout", (req: Request, res: Response, next: NextFunction) => {
+router.post("/logout", 
+    isAuthenticated,
+    (req: Request, res: Response, next: NextFunction) => {
     try{
-        if(!(req.session && req.session.user))
-        return res.send("로그인이 안 되어 있습니다");
-
         req.session.destroy((err)=>{
             if(err) throw new Error("로그아웃 실패");
         })
@@ -78,20 +79,21 @@ router.post("/logout", (req: Request, res: Response, next: NextFunction) => {
     }
 });
 
-router.get("/user", (req: Request, res: Response, next: NextFunction) => {
+router.get("/user", 
+    isAuthenticated,
+    (req: Request, res: Response, next: NextFunction) => {
     try{
-        if(!(req.session && req.session.user)) throw new Error("로그인을 하십시오")
         res.json({username : req.session.user?.username});
     }catch(err){ 
-        res.json({msg : (err as Error).message});
+        
     }
 });
 
  //TODO: Find user details
-router.get("/user/:userid", async (req: Request, res: Response, next: NextFunction) => {
+router.get("/user/:userid",
+    isAuthenticated,
+    async (req: Request, res: Response, next: NextFunction) => {
     try{
-        if(!(req.session && req.session.user)) throw new Error("로그인을 하세요")
-        
         const userId = req.params.userid;
         const connection = await connectionPool.getConnection();
         const [userDetails, fields] = await connection.query(`
@@ -133,6 +135,7 @@ router.post("/user", async (req: Request, res: Response, next: NextFunction) => 
             INSERT INTO owners (userid, userpw, username) 
             VALUES (?, ?, ?)`,
             [newUser.userid, newUser.userpw, newUser.username])
+        connection.release();
         
         res.json({msg :"회원가입에 성공했습니다"});
 
@@ -140,25 +143,9 @@ router.post("/user", async (req: Request, res: Response, next: NextFunction) => 
     }catch(err){
         res.json({msg : (err as Error).message})
         await connection.rollback();
-    }finally{
-        connection.release();
-    }   
+    } 
 });
 
-router.get("/logout", (req: Request, res: Response, next: NextFunction) => {
-    try{
-        if(!(req.session && req.session.user))
-        return res.send("로그인이 되어있지 않습니다.");
-
-        req.session.destroy((err)=>{
-            if(err) throw new Error("로그아웃 실패");
-        })
-
-        res.send("로그아웃 성공");
-    }catch(err){
-        res.json({msg :(err as Error).message})
-    }
-});
 
 /**@ROUTER post parts */
 type postType = {
@@ -167,26 +154,39 @@ type postType = {
     createAt : string
 }
 
-router.get("/post", async(req: Request, res: Response, next: NextFunction) => {
+router.get("/post", isAuthenticated, async(req: Request, res: Response, next: NextFunction) => {
     try{
-        if(!req.session || !req.session.user) throw new Error("로그인을 하세요")
-        
         const connection = await connectionPool.getConnection();
         const [posts, fields] = await connection.query("SELECT *FROM posts") as [postType[], object];
+        connection.release();
 
         console.log(posts);
 
         if(posts.length === 0) throw new Error("조회된 게시글이 없습니다");
 
         res.json(posts);
-        connection.release();
     }catch(err){
         res.status(500).json({msg:(err as Error).message});
     }
 
 });
-router.post("/post/:userid", async (req: Request, res: Response, next: NextFunction) => {
-    
+router.post("/post/:userid", isAuthenticated ,async (req: Request, res: Response, next: NextFunction) => {
+    //TODO: 게시글 작성
+    try{
+        const newContent = req.body.content;
+        const user = req.params;
+
+        const connection = await connectionPool.getConnection();
+        connection.query(`
+        INSERT INTO posts (userid, content) VALUES ("?","?")`,
+        [user,newContent]);
+        
+        connection.release();
+        
+        res.send("게시글을 성공적으로 게시했습니다")
+    }catch(err){
+        res.send({msg : (err as Error).message});
+    }
 });
 
 router.delete("/post", async (req: Request, res: Response, next: NextFunction) => {
@@ -205,19 +205,19 @@ router.delete("/post", async (req: Request, res: Response, next: NextFunction) =
         if(!(postUserId === req.session.user?.userid)) throw new Error ("게시글의 작성자만 삭제 가능합니다.");
         
         await connection.query(`
-            DELETE FROM posts
-            WHERE postid = ?`,[postId]);
+        DELETE FROM posts
+        WHERE postid = ?`,[postId]);
+
+        connection.release();
+
         res.json({msg : "게시글을 삭제했습니다"});
         await connection.commit();
     }catch(err){
         res.status(500).json({msg:(err as Error).message});
         await connection.rollback();
-    }finally{
-        await connection.release();
     }
-    
 });
-router.put("/post", async (req: Request, res: Response, next: NextFunction) => {
+router.put("/post", isAuthenticated, async (req: Request, res: Response, next: NextFunction) => {
     try{
         const updatePostInfo = req.body;
         const postId = updatePostInfo.postid;
@@ -236,9 +236,10 @@ router.put("/post", async (req: Request, res: Response, next: NextFunction) => {
             UPDATE posts
             SET content = ?
             WHERE postid = ?`,[newContent, postId] ) 
+        
+            connection.release();
 
         res.json({msg : "수정을 완료했습니다"})
-        connection.release();
     }catch(err){
         res.json({msg : (err as Error).message});
     }
