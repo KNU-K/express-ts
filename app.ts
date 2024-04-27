@@ -1,4 +1,4 @@
-import express, { Application, json, urlencoded } from "express";
+import {json, urlencoded } from "express";
 import v1 from "./api/v1/index";
 import session from "express-session";
 import app from "./server"
@@ -14,9 +14,9 @@ app.use(
     resave: false,
   })
 );
-app.use("/",authenticateError);
 /**@ROUTER per VERSION */
 app.use("/api/v1", v1);
+app.use("/",authenticateError);
 
 
 
